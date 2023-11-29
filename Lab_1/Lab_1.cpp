@@ -231,8 +231,9 @@ double average_cpp_reduction(const double* V, size_t N) {
 
 	barrier	bar(T);
 
-	auto worker_proc = [&bar, &partial_sums, T, V, N](unsigned t) {
+	auto worker_proc = [&bar, &partial_sums, T, &V, N](unsigned t) {
 		size_t b = N % T, e = N / T;
+
 		if (t < b)
 			b = t * ++e;
 		else
@@ -377,42 +378,35 @@ int main() {
 		buf[i] = i;
 	}
 
-	//measure_time(average_cpp_mtx_local, N, buf, "Time taken local: ");
+	//measure_time(average, N, buf, "Time taken common: ");
+	//measure_time(average_reduce, N, buf, "Time taken Reduce: ");
+	//measure_time(average_rr, N, buf, "Time taken RoundRobin: ");
+	//measure_time(average_omp, N, buf, "Time taken OMP: ");
+	//measure_time(average_omp_aligned, N, buf, "Time taken OMP-aligned: ");
+	//measure_time(average_cpp_aligned, N, buf, "Time taken CPP-aligned: ");
+	//measure_time(average_omp_mtx, N, buf, "Time taken OMP-Mutex: ");
+	//measure_time(average_cpp_mtx, N, buf, "Time taken CPP-Mutex: ");
+	//measure_time(average_cpp_mtx_local, N, buf, "Time taken CPP-Mutex localized: ");
 	//measure_time(average_cpp_reduction, N, buf, "Time taken cpp reduction: ");
 
-	////measure_time(average, N, buf, "Time taken common: ");
-	////measure_time(average_reduce, N, buf, "Time taken Reduce: ");
-	////measure_time(average_rr, N, buf, "Time taken RoundRobin: ");
-	////measure_time(average_omp, N, buf, "Time taken OMP: ");
-	////measure_time(average_omp_aligned, N, buf, "Time taken OMP-aligned: ");
-	////measure_time(average_cpp_aligned, N, buf, "Time taken CPP-aligned: ");
-	////measure_time(average_omp_mtx, N, buf, "Time taken OMP-Mutex: ");
-	////measure_time(average_cpp_mtx, N, buf, "Time taken CPP-Mutex: ");
-	////measure_time(average_cpp_mtx_local, N, buf, "Time taken CPP-Mutex localized: ");
-
-	//std::cout << CallAnyFunc(average_reduce, const_cast<const double*>(buf.get()), N) << std::endl;
-	//// std::cout << CallAnyFunc(add, 10, 15) << std::endl;
-
-	//// TODO: сделать вывод в CSV файл
-
 	std::vector<measure_func> functions_for_measure{
-		measure_func("average_cpp_reduction", average_cpp_reduction),
-		measure_func("average", average),
-		measure_func("average_reduce", average_reduce),
+		//measure_func("average", average),
+		//measure_func("average_reduce", average_reduce),
 		//measure_func("average_rr", average_rr),
 		//measure_func("average_omp", average_omp),
 		//measure_func("average_omp_aligned", average_omp_aligned),
 		//measure_func("average_cpp_aligned", average_cpp_aligned),
 		//measure_func("average_omp_mtx", average_omp_mtx),
 		//measure_func("average_cpp_mtx", average_cpp_mtx),
-		//measure_func("average_cpp_mtx", average_cpp_mtx),
-		measure_func("average_cpp_mtx_local", average_cpp_mtx_local)
+		//measure_func("average_cpp_mtx_local", average_cpp_mtx_local),
+		measure_func("average_cpp_reduction", average_cpp_reduction)
 	};
 
 	for (auto& mf : functions_for_measure) {
 		auto exp_res = run_experiement_cpp(mf.func, N, buf);
 
 		if (_isatty(_fileno(stdout))) {
+			// Код ниже для вывода в консоль
 			std::cout << "Function: " << mf.name << '\n';
 			std::cout << "T\tResult\t\t\tTime\t\tSpeedup\t\t\tEfficiency" << '\n';
 			for (auto& ev : exp_res) {
@@ -424,6 +418,7 @@ int main() {
 			}
 		}
 		else {
+			// Код ниже для вывода в файл
 			std::cout << "Function:;" << mf.name << '\n';
 			std::cout << "T;Result;Time;Speedup;Efficiency\n";
 			for (auto& ev : exp_res) {
