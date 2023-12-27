@@ -9,11 +9,13 @@
 #include <functional>
 #include "maro.h"
 #include "thread_misc.h"
+#include <locale>
+#include <stdio.h>
 
 using namespace std;
 
 
-double average(const double* V, size_t n) {
+double average(const uint32_t* V, size_t n) {
 	double res = 0.0;
 	for (size_t i = 0; i < n; ++i) {
 		res += V[i];
@@ -21,7 +23,7 @@ double average(const double* V, size_t n) {
 	return res / n;
 }
 
-double average_reduce(const double* V, size_t n) {
+double average_reduce(const uint32_t* V, size_t n) {
 	double res = 0.0;
 #pragma omp parallel for reduction(+:res)
 	for (int i = 0; i < n; ++i) {
@@ -30,13 +32,13 @@ double average_reduce(const double* V, size_t n) {
 	return res / n;
 }
 
-double average_rr(const double* V, size_t n) {
+double average_rr(const uint32_t* V, size_t n) {
 	double res = 0.0;
 
 #pragma omp parallel
 	{
 		unsigned t = omp_get_thread_num();
-		unsigned T = omp_get_num_threads();
+		unsigned T = omp_get_max_threads();
 		for (int i = t; i < n; i += T) {
 			res += V[i]; // Гонка потоков (на этом кончилась пара)
 		}
@@ -45,14 +47,14 @@ double average_rr(const double* V, size_t n) {
 	return res / n;
 }
 
-double average_omp(const double* V, size_t n) {
+double average_omp(const uint32_t* V, size_t n) {
 	// double res = 0.0, * partial_sums = (double*)calloc(omp_get_num_procs(), sizeof(double));
 	double res = 0.0, * partial_sums;
 
 #pragma omp parallel
 	{
 		unsigned t = omp_get_thread_num();
-		unsigned T = omp_get_num_threads();
+		unsigned T = omp_get_max_threads();
 #pragma omp single
 		{
 			partial_sums = (double*)malloc(T * sizeof(V[0]));
@@ -78,7 +80,7 @@ struct partial_sum_t {
 	alignas (64) double value = 0.0;
 };
 
-double average_omp_aligned(const double* V, size_t n) {
+double average_omp_aligned(const uint32_t* V, size_t n) {
 	unsigned T;
 	double res = 0.0;
 	partial_sum_t* partial_sums;
@@ -86,7 +88,7 @@ double average_omp_aligned(const double* V, size_t n) {
 #pragma omp parallel shared(T)
 	{
 		unsigned t = omp_get_thread_num();
-		T = omp_get_num_threads();
+		T = omp_get_max_threads();
 #pragma omp single
 		{
 			partial_sums = (partial_sum_t*)malloc(T * sizeof(partial_sum_t));
@@ -104,14 +106,14 @@ double average_omp_aligned(const double* V, size_t n) {
 	return res;
 }
 
-double average_cpp_aligned(const double* V, size_t n) {
+double average_cpp_aligned(const uint32_t* V, size_t n) {
 	unsigned T;
 	double res = 0.0;
 	std::unique_ptr<partial_sum_t[]> partial_sums;
 #pragma omp parallel shared(T)
 	{
 		unsigned t = omp_get_thread_num();
-		T = omp_get_num_threads();
+		T = omp_get_max_threads();
 #pragma omp single
 		{
 			partial_sums = std::make_unique<partial_sum_t[]>(T);
@@ -128,7 +130,7 @@ double average_cpp_aligned(const double* V, size_t n) {
 	return partial_sums[0].value / n;
 }
 
-double average_omp_mtx(const double* V, size_t n) {
+double average_omp_mtx(const uint32_t* V, size_t n) {
 	double res = 0.0;
 #pragma omp parallel
 	{
@@ -146,9 +148,9 @@ double average_omp_mtx(const double* V, size_t n) {
 	return res / n;
 }
 
-double average_cpp_mtx(const double* V, size_t N) {
+double average_cpp_mtx(const uint32_t* V, size_t N) {
 	double res = 0.0;
-	unsigned T = std::thread::hardware_concurrency();
+	unsigned T = get_num_threads();
 	std::vector<std::thread> workers;
 	std::mutex mtx;
 
@@ -180,13 +182,11 @@ double average_cpp_mtx(const double* V, size_t N) {
 }
 
 // Локализация 18.10.2023
-double average_cpp_mtx_local(const double* V, size_t N) {
+double average_cpp_mtx_local(const uint32_t* V, size_t N) {
 	double res = 0.0;
-	unsigned T = std::thread::hardware_concurrency();
+	unsigned T = get_num_threads();
 	std::vector<std::thread> workers;
 	std::mutex mtx;
-	size_t ndt = N / T;
-	size_t nmt = N % T;
 
 	auto worker_proc = [&mtx, &res, T, V, N](unsigned t) {
 		size_t b = N % T, e = N / T;
@@ -218,16 +218,13 @@ double average_cpp_mtx_local(const double* V, size_t N) {
 	return res / N;
 }
 
-double average_cpp_reduction(const double* V, size_t N) {
-	unsigned T = std::thread::hardware_concurrency();
+double average_cpp_reduction(const uint32_t* V, size_t N) {
+	unsigned T = get_num_threads();
 
 	std::vector<double> partial_sums;
 	partial_sums.resize(T);
 
 	std::vector<std::thread> workers;
-
-	size_t ndt = N / T;
-	size_t nmt = N % T;
 
 	barrier	bar(T);
 
@@ -267,18 +264,6 @@ double average_cpp_reduction(const double* V, size_t N) {
 	return partial_sums[0] / N;
 }
 
-
-// Монитор
-// - События (Events)
-// - Переменные условия ( Condition variable - cv)
-//
-
-// Ускорение 25.10.2023
-// То, насколько увеличивается эффективность программы в зависимости
-// от роста числа процессоров относительно масштабности задачи
-// Speedup = time_t1 / time_tT
-// Efficiency = Speedup / T
-
 void measure_time(double (*f)(const double*, size_t), size_t N, std::unique_ptr<double[]>& arr, string msg) {
 	double t1 = omp_get_wtime();
 	double v = f(arr.get(), N);
@@ -296,117 +281,131 @@ auto measure_time_chrono(F f, size_t N, std::unique_ptr<double[]>& arr) {
 	return duration_cast<milliseconds>(t2 - t1).count();
 }
 
-template<typename ReturnType, typename... Args>
-ReturnType CallAnyFunc(ReturnType(*f)(Args...), Args... args) {
-	return f(args...);
-}
+const uint32_t A = 22695477;
+const uint32_t B = 1;
 
-void QueueDemo() {
-	unsigned P = std::thread::hardware_concurrency();
-	unsigned producers_count = 1, consumers_count = P - 1;
+class lc_t {
+public:
+	uint32_t A, B;
 
-	std::vector<std::thread> producers;
-	std::vector<std::thread> consumers;
+	lc_t(uint32_t a = 1, uint32_t b = 0) : A(a), B(b) {}
 
-	std::mutex mtx;
-	std::queue<int> q;
-	std::condition_variable cv;
+	lc_t& operator *= (const lc_t& x) {
+		A *= x.A;
+		B += A * x.B;
+		return *this;
+	}
 
-	auto producer_proc = [&mtx, &q, &cv, consumers_count]() {
-		for (unsigned c = 0; c < consumers_count; ++c) {
-			std::scoped_lock l{ mtx };
-			q.push(c);
-			cv.notify_one();
+	auto operator() (uint32_t seed, uint32_t min_value, uint32_t max_value) const {
+		if (max_value - min_value + 1 != 0) {
+			return (A * seed + B) % (max_value - min_value) + min_value;
 		}
-		};
-
-	auto consumer_proc = [&mtx, &cv, &q](unsigned t) {
-		std::unique_lock ul(mtx);
-
-		while (q.empty()) {
-			cv.wait(ul);
+		else {
+			return A * seed + B;
 		}
-
-		int m = q.front();
-		q.pop();
-
-		cout << "Thread " << t << " received message " << m << "\n";
-		};
-
-	for (unsigned i = 0; i < producers_count; ++i) {
-		producers.emplace_back(producer_proc);
-	}
-
-	for (unsigned i = 0; i < consumers_count; ++i) {
-		consumers.emplace_back(consumer_proc, producers_count + i + 1);
-	}
-
-	for (auto& p : producers) {
-		p.join();
-	}
-
-	for (auto& c : consumers) {
-		c.join();
-	}
-}
-
-
-// 22.11.23
-// Барьер памяти (memory fence) (mfence)
-// Объект синхронизации 
-// C++20:
-// std::latch - одноразовый барьер
-// latch(T);
-// arrive_and_wait();
-// std::barrier - переиспользуемый
-// barrier(T);
-// arrive_and_wait();
-
-struct measure_func {
-	std::string name;
-	double (*func)(const double*, size_t);
-	measure_func(std::string name, double (*func)(const double*, size_t)) : name(name), func(func)
-	{
 	}
 };
 
-int main() {
-	size_t N = 1u << 30; // 2^n
+double randomize_vector(uint32_t* V, size_t n, size_t seed, uint32_t min_val = 0, uint32_t max_val = UINT32_MAX) {
+	double res = 0.0;
 
-	auto buf = make_unique<double[]>(N);
-	for (size_t i = 0; i < N; ++i) {
-		buf[i] = i;
+	if (min_val > max_val) {
+		exit(__LINE__);
 	}
 
-	//measure_time(average, N, buf, "Time taken common: ");
-	//measure_time(average_reduce, N, buf, "Time taken Reduce: ");
-	//measure_time(average_rr, N, buf, "Time taken RoundRobin: ");
-	//measure_time(average_omp, N, buf, "Time taken OMP: ");
-	//measure_time(average_omp_aligned, N, buf, "Time taken OMP-aligned: ");
-	//measure_time(average_cpp_aligned, N, buf, "Time taken CPP-aligned: ");
-	//measure_time(average_omp_mtx, N, buf, "Time taken OMP-Mutex: ");
-	//measure_time(average_cpp_mtx, N, buf, "Time taken CPP-Mutex: ");
-	//measure_time(average_cpp_mtx_local, N, buf, "Time taken CPP-Mutex localized: ");
-	//measure_time(average_cpp_reduction, N, buf, "Time taken cpp reduction: ");
+	lc_t generator(A, B);
+
+	for (int i = 1; i < n; ++i) {
+		generator *= generator;
+		V[i] = generator(seed, min_val, max_val);
+		res += V[i];
+	}
+
+	return res / n;
+}
+
+double randomize_vector_par(uint32_t* V, size_t n, uint32_t seed, uint32_t min_val = 0, uint32_t max_val = UINT32_MAX) {
+	double res = 0;
+
+	unsigned T = get_num_threads();
+	std::vector<std::thread> workers;
+	std::mutex mtx;
+
+	auto worker_proc = [V, n, seed, T, min_val, max_val, &res, &mtx](unsigned t) {
+		double partial = 0;
+		auto generator = lc_t(A, B);
+
+		size_t b = n % T, e = n / T;
+		if (t < b)
+			b = t * ++e;
+		else
+			b += t * e;
+		e += b;
+
+		generator = fast_pow(generator, b + 1);;
+		for (int i = b; i < e; ++i) {
+			generator *= generator;
+			V[i] = generator(seed, min_val, max_val);
+			partial += V[i];
+		}
+
+		{
+			std::scoped_lock l{ mtx };
+			res += partial;
+		}
+
+		};
+
+	for (unsigned t = 1; t < T; ++t) {
+		workers.emplace_back(worker_proc, t);
+	}
+
+	worker_proc(0);
+	for (auto& w : workers) {
+		w.join();
+	}
+
+	return res / n;
+}
+
+double randomize_vector_par(std::vector<uint32_t>& V, uint32_t seed, uint32_t min_val = 0, uint32_t max_val = UINT32_MAX) {
+	return randomize_vector_par(V.data(), V.size(), seed, min_val, max_val);
+}
+
+int main() {
+	const size_t N = 1u << 4; // 2^n
+
+	//auto buf = make_unique<double[]>(N);
+	/*for (size_t i = 0; i < N; ++i) {
+		buf[i] = i;
+	}*/
+
+	std::vector<uint32_t> buf(N);
+	randomize_vector_par(buf, 10000, 0, 100);
+
+	for (size_t i = 0; i < N; i++)
+	{
+		cout << buf[i] << " ";
+	}
+	cout << "\n";
 
 	std::vector<measure_func> functions_for_measure{
 		//measure_func("average", average),
-		//measure_func("average_reduce", average_reduce),
+		measure_func("average_reduce", average_reduce),
 		//measure_func("average_rr", average_rr),
 		//measure_func("average_omp", average_omp),
-		//measure_func("average_omp_aligned", average_omp_aligned),
-		//measure_func("average_cpp_aligned", average_cpp_aligned),
+		measure_func("average_omp_aligned", average_omp_aligned),
+		measure_func("average_cpp_aligned", average_cpp_aligned),
 		//measure_func("average_omp_mtx", average_omp_mtx),
 		//measure_func("average_cpp_mtx", average_cpp_mtx),
-		//measure_func("average_cpp_mtx_local", average_cpp_mtx_local),
+		measure_func("average_cpp_mtx_local", average_cpp_mtx_local),
 		measure_func("average_cpp_reduction", average_cpp_reduction)
 	};
 
-	for (auto& mf : functions_for_measure) {
-		auto exp_res = run_experiement_cpp(mf.func, N, buf);
-
-		if (_isatty(_fileno(stdout))) {
-			// Код ниже для вывода в консоль
+	if (_isatty(_fileno(stdout))) {
+		// Код ниже для вывода в консоль
+		for (auto& mf : functions_for_measure) {
+			auto exp_res = run_experiement_cpp(mf.func, N, buf.data());
 			std::cout << "Function: " << mf.name << '\n';
 			std::cout << "T\tResult\t\t\tTime\t\tSpeedup\t\t\tEfficiency" << '\n';
 			for (auto& ev : exp_res) {
@@ -417,11 +416,16 @@ int main() {
 				std::cout << ev.efficiency << '\n';
 			}
 		}
-		else {
+	}
+	else {
+		cout.imbue(std::locale(""));
+		// Код ниже для перенаправленного вывода
+		std::cout << "Method;T;Result;Time;Speedup;Efficiency\n";
+		for (auto& mf : functions_for_measure) {
+			auto exp_res = run_experiement_cpp(mf.func, N, buf.data());
 			// Код ниже для вывода в файл
-			std::cout << "Function:;" << mf.name << '\n';
-			std::cout << "T;Result;Time;Speedup;Efficiency\n";
 			for (auto& ev : exp_res) {
+				std::cout << mf.name << ";";
 				std::cout << ev.T << ";";
 				std::cout << ev.result << ";";
 				std::cout << ev.time << ";";

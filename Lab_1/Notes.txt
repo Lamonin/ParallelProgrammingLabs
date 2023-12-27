@@ -1,0 +1,110 @@
+// Монитор
+// - События (Events)
+// - Переменные условия ( Condition variable - cv)
+//
+
+// Ускорение 25.10.2023
+// То, насколько увеличивается эффективность программы в зависимости
+// от роста числа процессоров относительно масштабности задачи
+// Speedup = time_t1 / time_tT
+// Efficiency = Speedup / T
+
+// 22.11.23
+// Барьер памяти (memory fence) (mfence)
+// Объект синхронизации 
+// C++20:
+// std::latch - одноразовый барьер
+// latch(T);
+// arrive_and_wait();
+// std::barrier - переиспользуемый
+// barrier(T);
+// arrive_and_wait();
+
+// 06.12.2023
+// Рандомизация данных с помощью линейного
+// конгруентного генератора
+// Рекуррентное аффинное преобразование:
+// x0 - seed
+// xi = f(x_i-1), i >= 1
+// ЛКГ: f(x) = Ax + B
+// РАФ: xi = Ax_i-1 + B
+// V[i] = AV[i-1] + B
+// 
+// Попробовать сделать рандомизацию через RoundRobin
+// https://oldshatalov.ghost17.ru/ru/articles/algorithms/random_0.html
+
+static int global_seed;
+static vector<int> random_values;
+const size_t A = 1103515245;
+const size_t M = 1u << 31;
+const size_t B = 12345;
+
+void ppsrand(unsigned seed) {
+	global_seed = seed;
+	random_values.clear();
+
+	unsigned T = omp_get_max_threads();
+
+	random_values.emplace_back(seed);
+	for (int i = 1; i < T; ++i) {
+		random_values.emplace_back((A * random_values[i - 1] + B) % M);
+	}
+}
+
+int pprand() {
+	unsigned T = omp_get_max_threads();
+	unsigned t = omp_get_thread_num();
+
+	random_values[t] = (fast_pow(A, T) * random_values[t] + ((fast_pow(A, T - 1) - 1) / (A - 1)) * ((fast_pow(A, t - 1) - 1) / (A - 1)) * B) % M;
+
+	return random_values[t];
+}
+
+void QueueDemo() {
+	unsigned P = std::thread::hardware_concurrency();
+	unsigned producers_count = 1, consumers_count = P - 1;
+
+	std::vector<std::thread> producers;
+	std::vector<std::thread> consumers;
+
+	std::mutex mtx;
+	std::queue<int> q;
+	std::condition_variable cv;
+
+	auto producer_proc = [&mtx, &q, &cv, consumers_count]() {
+		for (unsigned c = 0; c < consumers_count; ++c) {
+			std::scoped_lock l{ mtx };
+			q.push(c);
+			cv.notify_one();
+		}
+		};
+
+	auto consumer_proc = [&mtx, &cv, &q](unsigned t) {
+		std::unique_lock ul(mtx);
+
+		while (q.empty()) {
+			cv.wait(ul);
+		}
+
+		int m = q.front();
+		q.pop();
+
+		cout << "Thread " << t << " received message " << m << "\n";
+		};
+
+	for (unsigned i = 0; i < producers_count; ++i) {
+		producers.emplace_back(producer_proc);
+	}
+
+	for (unsigned i = 0; i < consumers_count; ++i) {
+		consumers.emplace_back(consumer_proc, producers_count + i + 1);
+	}
+
+	for (auto& p : producers) {
+		p.join();
+	}
+
+	for (auto& c : consumers) {
+		c.join();
+	}
+}

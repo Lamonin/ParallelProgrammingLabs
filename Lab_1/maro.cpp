@@ -1,6 +1,6 @@
 #include "maro.h"
 
-std::vector<profiling_results_t> run_experiement_omp(double(*f)(const double*, size_t), size_t N, std::unique_ptr<double[]>& arr) {
+std::vector<profiling_results_t> run_experiement_omp(double(*f)(const uint32_t*, size_t), size_t N, uint32_t* arr) {
 	std::vector<profiling_results_t> res_table;
 	unsigned threads_count = omp_get_num_procs();
 
@@ -11,7 +11,7 @@ std::vector<profiling_results_t> run_experiement_omp(double(*f)(const double*, s
 		res_table[T - 1].T = T;
 
 		auto t1 = omp_get_wtime();
-		res_table[T - 1].result = f(arr.get(), N);
+		res_table[T - 1].result = f(arr, N);
 		auto t2 = omp_get_wtime();
 
 		res_table[T - 1].time = t2 - t1;
@@ -22,7 +22,7 @@ std::vector<profiling_results_t> run_experiement_omp(double(*f)(const double*, s
 	return res_table;
 }
 
-std::vector<profiling_results_t> run_experiement_cpp(double (*f)(const double*, size_t), size_t N, std::unique_ptr<double[]>& arr) {
+std::vector<profiling_results_t> run_experiement_cpp(double (*f)(const uint32_t*, size_t), size_t N, uint32_t *arr) {
 	using namespace std::chrono;
 
 	std::vector<profiling_results_t> res_table;
@@ -35,7 +35,7 @@ std::vector<profiling_results_t> run_experiement_cpp(double (*f)(const double*, 
 		res_table[T - 1].T = T;
 
 		auto t1 = steady_clock::now();
-		res_table[T - 1].result = f(arr.get(), N);
+		res_table[T - 1].result = f(arr, N);
 		auto t2 = steady_clock::now();
 
 		res_table[T - 1].time = duration_cast<milliseconds>(t2 - t1).count();
