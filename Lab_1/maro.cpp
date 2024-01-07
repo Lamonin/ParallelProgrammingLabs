@@ -1,7 +1,7 @@
 #include "maro.h"
 
-std::vector<profiling_results_t> run_experiement_omp(double(*f)(const uint32_t*, size_t), size_t N, uint32_t* arr) {
-	std::vector<profiling_results_t> res_table;
+std::vector<profiling_result_t> run_experiement_omp(double(*f)(const uint32_t*, size_t), size_t N, uint32_t* arr) {
+	std::vector<profiling_result_t> res_table;
 	unsigned threads_count = omp_get_num_procs();
 
 	for (unsigned T = 1; T <= threads_count; ++T) {
@@ -22,10 +22,10 @@ std::vector<profiling_results_t> run_experiement_omp(double(*f)(const uint32_t*,
 	return res_table;
 }
 
-std::vector<profiling_results_t> run_experiement_cpp(double (*f)(const uint32_t*, size_t), size_t N, uint32_t *arr) {
+std::vector<profiling_result_t> run_experiement_cpp(double (*f)(const uint32_t*, size_t), size_t N, uint32_t *arr) {
 	using namespace std::chrono;
 
-	std::vector<profiling_results_t> res_table;
+	std::vector<profiling_result_t> res_table;
 	std::size_t T_max = get_num_threads();
 
 	for (unsigned T = 1; T <= T_max; ++T) {

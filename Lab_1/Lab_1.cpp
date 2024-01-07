@@ -291,8 +291,15 @@ public:
 	lc_t(uint32_t a = 1, uint32_t b = 0) : A(a), B(b) {}
 
 	lc_t& operator *= (const lc_t& x) {
-		A *= x.A;
-		B += A * x.B;
+		if (A == 1 && B == 0) {
+			A = x.A;
+			B = x.B;
+		}
+		else {
+			A *= x.A;
+			B += A * x.B;
+		}
+
 		return *this;
 	}
 
@@ -333,7 +340,6 @@ double randomize_vector_par(uint32_t* V, size_t n, uint32_t seed, uint32_t min_v
 
 	auto worker_proc = [V, n, seed, T, min_val, max_val, &res, &mtx](unsigned t) {
 		double partial = 0;
-		auto generator = lc_t(A, B);
 
 		size_t b = n % T, e = n / T;
 		if (t < b)
@@ -342,7 +348,8 @@ double randomize_vector_par(uint32_t* V, size_t n, uint32_t seed, uint32_t min_v
 			b += t * e;
 		e += b;
 
-		generator = fast_pow(generator, b + 1);;
+
+		auto generator = fast_pow(lc_t(A, B), fast_pow(2u, b + 1));
 		for (int i = b; i < e; ++i) {
 			generator *= generator;
 			V[i] = generator(seed, min_val, max_val);
@@ -372,22 +379,9 @@ double randomize_vector_par(std::vector<uint32_t>& V, uint32_t seed, uint32_t mi
 	return randomize_vector_par(V.data(), V.size(), seed, min_val, max_val);
 }
 
-int main() {
-	const size_t N = 1u << 4; // 2^n
-
-	//auto buf = make_unique<double[]>(N);
-	/*for (size_t i = 0; i < N; ++i) {
-		buf[i] = i;
-	}*/
-
+void FirstLab(size_t N) {
 	std::vector<uint32_t> buf(N);
-	randomize_vector_par(buf, 10000, 0, 100);
-
-	for (size_t i = 0; i < N; i++)
-	{
-		cout << buf[i] << " ";
-	}
-	cout << "\n";
+	randomize_vector_par(buf, 20020922);
 
 	std::vector<measure_func> functions_for_measure{
 		//measure_func("average", average),
@@ -423,7 +417,6 @@ int main() {
 		std::cout << "Method;T;Result;Time;Speedup;Efficiency\n";
 		for (auto& mf : functions_for_measure) {
 			auto exp_res = run_experiement_cpp(mf.func, N, buf.data());
-			// Код ниже для вывода в файл
 			for (auto& ev : exp_res) {
 				std::cout << mf.name << ";";
 				std::cout << ev.T << ";";
@@ -434,6 +427,63 @@ int main() {
 			}
 		}
 	}
+}
 
+void SecondLab(size_t N) {
+	std::vector<uint32_t> arr(N);
+
+	std::size_t T_max = get_num_threads();
+	std::vector<profiling_result_t> profiling_results(T_max);
+
+	for (unsigned T = 1; T <= T_max; ++T) {
+		set_num_threads(T);
+
+		profiling_results[T - 1].T = T;
+
+		auto t1 = std::chrono::steady_clock::now();
+		profiling_results[T - 1].result = randomize_vector_par(arr, 20020922);
+		auto t2 = std::chrono::steady_clock::now();
+
+		profiling_results[T - 1].time = duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+		profiling_results[T - 1].speedup = profiling_results[0].time / profiling_results[T - 1].time;
+		profiling_results[T - 1].efficiency = profiling_results[T - 1].speedup / T;
+	}
+
+	// Вывод результатов
+	if (_isatty(_fileno(stdout))) {
+		// Код ниже для вывода в консоль
+
+		std::cout << "Randomize Vectors" << '\n';
+		std::cout << "T\tResult\t\t\tTime\t\tSpeedup\t\t\tEfficiency" << '\n';
+
+		for (auto& pr : profiling_results) {
+			std::cout << pr.T << "\t";
+			std::cout << pr.result << "\t\t";
+			std::cout << pr.time << "\t\t";
+			std::cout << pr.speedup << "\t\t\t";
+			std::cout << pr.efficiency << '\n';
+		}
+	}
+	else {
+		// Код ниже для перенаправленного вывода
+		cout.imbue(std::locale(""));
+		std::cout << "Method;T;Result;Time;Speedup;Efficiency\n";
+
+		for (auto& pr : profiling_results) {
+			std::cout << "Randomize Vectors;";
+			std::cout << pr.T << ";";
+			std::cout << pr.result << ";";
+			std::cout << pr.time << ";";
+			std::cout << pr.speedup << ";";
+			std::cout << pr.efficiency << "\n";
+		}
+	}
+}
+
+int main() {
+	const size_t N1 = 1u << 26;
+	const size_t N2 = 1u << 26;
+	FirstLab(N1);
+	SecondLab(N2);
 	return 0;
 }
