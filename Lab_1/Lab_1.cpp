@@ -296,8 +296,8 @@ public:
 			B = x.B;
 		}
 		else {
-			A *= x.A;
 			B += A * x.B;
+			A *= x.A;
 		}
 
 		return *this;
@@ -305,7 +305,7 @@ public:
 
 	auto operator() (uint32_t seed, uint32_t min_value, uint32_t max_value) const {
 		if (max_value - min_value + 1 != 0) {
-			return (A * seed + B) % (max_value - min_value) + min_value;
+			return (A * seed + B) % (max_value - min_value + 1) + min_value;
 		}
 		else {
 			return A * seed + B;
@@ -323,7 +323,7 @@ double randomize_vector(uint32_t* V, size_t n, size_t seed, uint32_t min_val = 0
 	lc_t generator(A, B);
 
 	for (int i = 1; i < n; ++i) {
-		generator *= generator;
+		generator *= lc_t(A, B);
 		V[i] = generator(seed, min_val, max_val);
 		res += V[i];
 	}
@@ -348,12 +348,12 @@ double randomize_vector_par(uint32_t* V, size_t n, uint32_t seed, uint32_t min_v
 			b += t * e;
 		e += b;
 
-
-		auto generator = fast_pow(lc_t(A, B), fast_pow(2u, b + 1));
+		//auto g 
+		auto generator = fast_pow(lc_t(A, B), b);
 		for (int i = b; i < e; ++i) {
-			generator *= generator;
+			generator *= lc_t(A, B);
 			V[i] = generator(seed, min_val, max_val);
-			partial += V[i];
+			partial += (double) V[i] / n;
 		}
 
 		{
@@ -372,7 +372,7 @@ double randomize_vector_par(uint32_t* V, size_t n, uint32_t seed, uint32_t min_v
 		w.join();
 	}
 
-	return res / n;
+	return res;// / n;
 }
 
 double randomize_vector_par(std::vector<uint32_t>& V, uint32_t seed, uint32_t min_val = 0, uint32_t max_val = UINT32_MAX) {
@@ -381,7 +381,7 @@ double randomize_vector_par(std::vector<uint32_t>& V, uint32_t seed, uint32_t mi
 
 void FirstLab(size_t N) {
 	std::vector<uint32_t> buf(N);
-	randomize_vector_par(buf, 20020922);
+	randomize_vector_par(buf, 20020922, 0, 100);
 
 	std::vector<measure_func> functions_for_measure{
 		//measure_func("average", average),
@@ -441,7 +441,7 @@ void SecondLab(size_t N) {
 		profiling_results[T - 1].T = T;
 
 		auto t1 = std::chrono::steady_clock::now();
-		profiling_results[T - 1].result = randomize_vector_par(arr, 20020922);
+		profiling_results[T - 1].result = randomize_vector_par(arr, 20020922, 0, 100);
 		auto t2 = std::chrono::steady_clock::now();
 
 		profiling_results[T - 1].time = duration_cast<std::chrono::milliseconds>(t2 - t1).count();
@@ -481,8 +481,8 @@ void SecondLab(size_t N) {
 }
 
 int main() {
-	const size_t N1 = 1u << 26;
-	const size_t N2 = 1u << 26;
+	const size_t N1 = 1u << 25;
+	const size_t N2 = 10;
 	FirstLab(N1);
 	SecondLab(N2);
 	return 0;
